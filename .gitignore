@@ -24,4 +24,4 @@ yarn-error.log*
 # Temp
 *.tmp
 *.bak
-*.cache
+*.cacheAGENTS.md
