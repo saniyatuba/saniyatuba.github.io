@@ -101,7 +101,14 @@ document.addEventListener('DOMContentLoaded', async function() {
   function setStatus(msg) { if (loading) loading.textContent = msg; }
 
   // Error sink persists across replaceWith since it's on window, not the DOM.
+  // Resource-load failures (img/script src 404s) arrive as error events whose
+  // target is the Element and whose message is empty. The template carries
+  // literal {{ ... }} holes in some src attributes; the browser tries to fetch
+  // them before dc-runtime hydrates, producing harmless 404s. Suppress those
+  // and only surface genuine script/JS errors, which carry a real message and
+  // filename (target === window, not an Element).
   window.addEventListener('error', function(e) {
+    if (!e.message && e.target && e.target !== window && e.target.tagName) return;
     var p = document.body || document.documentElement;
     var d = document.getElementById('__bundler_err') || p.appendChild(document.createElement('div'));
     d.id = '__bundler_err';
