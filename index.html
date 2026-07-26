@@ -205,7 +205,26 @@ document.addEventListener('DOMContentLoaded', async function() {
     // DOMParser/replaceWith are inert per spec — re-create each with
     // createElement so they execute, awaiting onload for src scripts to
     // preserve ordering (React before ReactDOM before Babel before text/babel).
+    //
+    // The <x-dc> template block carries literal {{ ... }} holes in some
+    // fetch-bearing attributes (e.g. <img src="{{ p.image }}">). The browser
+    // tries to fetch that string as a URL the instant the <img> connects,
+    // producing a 404 before dc-runtime hydrates. Strip those attributes
+    // from the live DOM before connection to suppress the fetch, and feed
+    // the original template to the runtime via __dcUpdate after boot so the
+    // holes still resolve. <x-dc> is display:none, so no flash is visible.
     const doc = new DOMParser().parseFromString(template, 'text/html');
+    const pristineXdC = doc.querySelector('x-dc');
+    const pristineTemplate = pristineXdC ? pristineXdC.innerHTML : null;
+    if (pristineXdC) {
+      pristineXdC.querySelectorAll('[src],[href],[poster],[srcset]').forEach(function(el) {
+        for (const attr of ['src','href','poster','srcset']) {
+          if (el.hasAttribute(attr) && el.getAttribute(attr).includes('{{')) {
+            el.removeAttribute(attr);
+          }
+        }
+      });
+    }
     document.documentElement.replaceWith(doc.documentElement);
     const dead = Array.from(document.scripts);
     for (const old of dead) {
@@ -229,6 +248,20 @@ document.addEventListener('DOMContentLoaded', async function() {
     // which fired before we swapped the document. Trigger manually if present.
     if (window.Babel && typeof window.Babel.transformScriptTags === 'function') {
       window.Babel.transformScriptTags();
+    }
+    // Feed the original (unstripped) template to dc-runtime so the {{ ... }}
+    // src holes it couldn't see (we stripped them pre-connection to avoid a
+    // 404) now resolve. The runtime exposes __dcUpdate/__dcRootName only after
+    // React finishes loading and init() runs, so poll until ready.
+    if (pristineTemplate != null) {
+      var tries = 0;
+      (function feedTemplate() {
+        if (typeof window.__dcUpdate === 'function' && typeof window.__dcRootName === 'function') {
+          var name = window.__dcRootName();
+          if (name) { window.__dcUpdate(name, 'html', pristineTemplate, false); return; }
+        }
+        if (++tries < 200) setTimeout(feedTemplate, 50);
+      })();
     }
   } catch (err) {
     setStatus('Error unpacking: ' + err.message);
